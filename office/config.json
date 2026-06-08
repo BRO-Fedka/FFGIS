@@ -1,0 +1,17 @@
+{
+  "udp_host": "0.0.0.0",
+  "udp_port": 9999,
+  "hex_images_path": "../Processed",
+  "marker_images_path": "../office/markers/",
+  "grid_file": "../office/hex_grid.json",
+  "marker_icon_size": 16,
+  "lod_levels": [
+    {"scale": 1.0, "label": "100%"},
+    {"scale": 0.5, "label": "50%"},
+    {"scale": 0.25, "label": "25%"},
+    {"scale": 0.1, "label": "10%"}
+  ],
+  "default_lod": 0,
+  "marker_triangle_lod": 2,
+  "marker_dot_lod": 3 
+}
