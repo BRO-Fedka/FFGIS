@@ -10,8 +10,13 @@ from PIL import Image, ImageDraw
 import statistics
 from typing import NamedTuple, Tuple
 import pickle
-from common import PlaneMM
+import sys
 import os
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+if parent_dir not in sys.path:
+   sys.path.append(parent_dir)
+from common import PlaneMM
 from dotenv import load_dotenv
 
 load_dotenv()
