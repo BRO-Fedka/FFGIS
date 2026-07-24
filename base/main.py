@@ -12,10 +12,11 @@ from typing import NamedTuple, Tuple
 import pickle
 import sys
 import os
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 if parent_dir not in sys.path:
-   sys.path.append(parent_dir)
+    sys.path.append(parent_dir)
 from common import PlaneMM
 from dotenv import load_dotenv
 
@@ -98,6 +99,7 @@ class Processor:
         self.user = user
         self.mark = PlaneMM(user.player_name, user.player_name)
         self.is_in_plane = False
+        self.cursor_pos = 0, 0
 
     def get_data(self):
         if self.is_in_plane:
@@ -120,6 +122,8 @@ class Processor:
             print("SHIT FRAME")
             return
         ker = np.ones((3, 3), np.uint8)
+        # ker5 = np.ones((5, 5), np.uint8)
+        ker7 = np.ones((7, 7), np.uint8)
         enormous_ker = np.ones((51, 51), np.uint8)
         height, width = frame.shape[:2]
         hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -146,6 +150,67 @@ class Processor:
             self.is_in_plane = True
         else:
             self.is_in_plane = False
+
+        # cursor_dot = cv2.imread('cursor.png', cv2.IMREAD_UNCHANGED)
+        # cursor_cross = cv2.imread('cross.png', cv2.IMREAD_UNCHANGED)
+        # mark_gt_w = cv2.imread('mark_gtw.png', cv2.IMREAD_UNCHANGED)
+        # mark_gt_t = cv2.imread('mark_gtt.png', cv2.IMREAD_UNCHANGED)
+        # mark_gt_b = cv2.imread('mark_gtb.png', cv2.IMREAD_UNCHANGED)
+        #
+        # def get_element_pos(template,show=False):
+        #     template_bgr = template[:, :, :3]
+        #     alpha = template[:, :, 3]
+        #     _, mask = cv2.threshold(alpha, 1, 255, cv2.THRESH_BINARY)
+        #     mask = mask.astype(np.uint8)
+        #     method = cv2.TM_CCOEFF_NORMED
+        #     result = cv2.matchTemplate(frame, template_bgr, method, mask=mask)
+        #     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+        #     if show:
+        #         cv2.imshow('lol',result)
+        #     if max_val >0.9:
+        #         print(max_val)
+        #         return max_loc
+        #     else:
+        #         lower = np.array([220, 220, 220])
+        #         upper = np.array([255, 255, 255])
+        #         white_mask = cv2.inRange(frame, lower, upper)
+        #         edge_mask = np.zeros_like(white_mask)
+        #         edge_mask[:20, :] = white_mask[:20, :]
+        #         edge_mask[-20:, :] = white_mask[-20:, :]
+        #         edge_mask[:, :20] = white_mask[:, :20]
+        #         edge_mask[:, -20:] = white_mask[:, -20:]
+        #
+        #         eroded = cv2.erode(edge_mask, ker)
+        #         dilated = cv2.dilate(eroded, ker)
+        #         contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        #
+        #         if contours:
+        #             largest_contour = max(contours, key=cv2.contourArea)
+        #             M = cv2.moments(largest_contour)
+        #             if M["m00"] != 0:
+        #                 cx = int(M["m10"] / M["m00"])
+        #                 cy = int(M["m01"] / M["m00"])
+        #                 center = (cx, cy)
+        #                 return center
+        #         return None
+        # cursor_pos = None
+        # cursor_cross_pos = get_element_pos(cursor_cross)
+        # cursor_dot_pos = get_element_pos(cursor_dot)
+        # if cursor_cross_pos:
+        #     cursor_pos = cursor_cross_pos
+        #     cursor_pos = (cursor_pos[0]+5,cursor_pos[1]+5)
+        # elif cursor_dot_pos:
+        #     cursor_pos = cursor_dot_pos
+        #     cursor_pos = (cursor_pos[0] + 10, cursor_pos[1] + 10)
+        # if cursor_pos:
+        #     self.cursor_pos = cursor_pos
+
+        # GREEN LINES
+
+        # lower = np.array([38, 56, 128])
+        # upper = np.array([49, 255, 255])
+        # green_lines = cv2.inRange(hsv_frame, lower, upper)
+        # cv2.imshow('gl',green_lines)
 
         map_rect = hsv_frame[height - 324:height, 0:324]
         # MASKS here
@@ -243,7 +308,7 @@ class Processor:
                         for sx in (0, 1):
                             for sy in (0, 1):
                                 if cm_array[x + sx][y + sy].pos != None and cm_array[x + sx][y + sy].pos != (
-                                pos[0] + sx, pos[1] + sy):
+                                        pos[0] + sx, pos[1] + sy):
                                     is_Achtung = True
                                 cm_array[x + sx][y + sy].pos = (pos[0] + sx, pos[1] + sy)
                         if RegID != -1 and RegID != regID:
@@ -560,7 +625,7 @@ def main():
     udp_thread.start()
 
     user = User(user_info[0])
-    streamer = ScreenStreamer() # VideoStreamer('E:\FFGIS\data/video.mp4')
+    streamer = VideoStreamer('E:\FFGIS\data/video.mp4')
     processor = Processor(user)
 
     while True:
@@ -569,7 +634,7 @@ def main():
         processor.process(frame)
         sending_data = processor.get_data()
 
-        cv2.waitKey(16)
+        cv2.waitKey(5)
 
     streamer.by_by()
     cv2.destroyAllWindows()

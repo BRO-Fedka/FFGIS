@@ -8,16 +8,38 @@ import threading
 import queue
 from PIL import Image, ImageTk, ImageDraw
 from collections import defaultdict
-from common import  PlaneMM
-from typing import Dict,Any
+from common import PlaneMM
+from typing import Dict, Any
 from dotenv import load_dotenv
+from shapely.geometry import Point, Polygon
+
+cx = 1092
+cy = cx * math.sqrt(3) / 2
+vertices = [
+    (cx + cx * math.cos(i * math.pi / 3),
+     cy + cx * math.sin(i * math.pi / 3))
+    for i in range(6)
+]
+hexagon = Polygon(vertices)
+
+
+def check_if_inside(px, py):
+    point = Point(px, py)
+
+    if hexagon.contains(point) or hexagon.touches(point):
+        return (px, py)
+
+    nearest = hexagon.exterior.interpolate(hexagon.exterior.project(point))
+    return (nearest.x, nearest.y)
+
+
 load_dotenv()
 HEX_WIDTH = 1024
 HEX_HEIGHT = 888
-
+m_per_pix = 2184 / 1024
 
 class PMMView:
-    def __init__(self,planemm,canvas):
+    def __init__(self, planemm, canvas):
         self.mm = planemm
         self.canvas = canvas
         self.mark_img_pi = None
@@ -26,6 +48,7 @@ class PMMView:
         self.is_selected = False
         self.x = None
         self.y = None
+        self.dir = None
 
     def select(self):
         self.is_selected = True
@@ -33,16 +56,15 @@ class PMMView:
     def unselect(self):
         self.is_selected = False
 
-    def does_contain(self,item):
+    def does_contain(self, item):
         return item in self.canvas_items
 
-    def get_coords(self,hex_grid,lod_scale):
+    def get_coords(self, hex_grid, lod_scale):
         reg_id = self.mm.regID
         coords = hex_grid.get(str(reg_id))
         if not coords:
-            return (None,None)
+            return (None, None)
         hex_x, hex_y = hex_to_xy(coords["q"], coords["r"], lod_scale)
-        m_per_pix = 2184 / 1024
         if self.x is None or self.y is None:
             self.x = self.mm.xm
             self.y = self.mm.ym
@@ -50,24 +72,26 @@ class PMMView:
         rel_y = self.y * lod_scale / m_per_pix
         wx = hex_x + rel_x
         wy = hex_y + rel_y
-        return wx,wy
+        return wx, wy
 
     def delete(self):
         for item in self.canvas_items:
             self.canvas.delete(item)
 
     def update(self):
-        if self.x is None or self.y is None:
+        if self.x is None or self.y is None or self.dir is None:
             self.x = self.mm.xm
             self.y = self.mm.ym
+            self.dir = self.mm.direction
         else:
-            self.x = self.x + (self.mm.xm-self.x)*0.1
-            self.y = self.y + (self.mm.ym-self.y)*0.1
+            self.x = self.x + (self.mm.xm - self.x) * 0.1
+            self.y = self.y + (self.mm.ym - self.y) * 0.1
+            self.dir = self.dir + ((self.mm.direction - self.dir + 180) % 360 - 180) * 0.06
+        self.x,self.y = check_if_inside(self.x,self.y)
 
+    def draw_marker(self, lod_scale, hex_grid, marker_icons_pil, offset_x, offset_y, canvas: tk.Canvas):
 
-    def draw_marker(self, lod_scale, hex_grid,marker_icons_pil, offset_x, offset_y, canvas:tk.Canvas):
-
-        wx,wy = self.get_coords(hex_grid,lod_scale)
+        wx, wy = self.get_coords(hex_grid, lod_scale)
         # print(wx,wy)
         icon_type = 'planeB' if self.mm.id == self.mm.name else 'planeR'
         icon_pil = marker_icons_pil.get(icon_type)
@@ -85,21 +109,19 @@ class PMMView:
                 self.canvas_items.append(self.mark_img_item)
                 # print("Create")
             else:
-                canvas.itemconfig(self.mark_img_item,image=self.mark_img_pi)
-                canvas.coords(self.mark_img_item,wx + offset_x, wy + offset_y)
+                canvas.itemconfig(self.mark_img_item, image=self.mark_img_pi)
+                canvas.coords(self.mark_img_item, wx + offset_x, wy + offset_y)
                 canvas.lift(self.mark_img_item)
                 # print('updt')
 
 
-
-
-
 def hex_to_xy(q, r, scale=1.0):
     """Координаты левого верхнего угла гекса в пикселях (до масштабирования)."""
-    x = q * HEX_WIDTH*0.75
+    x = q * HEX_WIDTH * 0.75
     y = (r * HEX_HEIGHT + (q % 2) * (HEX_HEIGHT) / 2)
     extra_scale_cof = 1 if scale > 0.1 else 0.99
-    return x * scale*extra_scale_cof, y * scale*extra_scale_cof
+    return x * scale * extra_scale_cof, y * scale * extra_scale_cof
+
 
 def scale_image(img, scale):
     if img is None:
@@ -109,12 +131,13 @@ def scale_image(img, scale):
         return None
     return img.resize((w, h), Image.LANCZOS)
 
+
 class UDPListener(threading.Thread):
     def __init__(self, host, port, data_queue):
         super().__init__(daemon=True)
         self.host = host
         self.port = port
-        #TODO TEMP
+        # TODO TEMP
         self.queue = data_queue
 
     def run(self):
@@ -155,12 +178,14 @@ class UDPListener(threading.Thread):
                 logging.exception("")
                 print("UDP error:", e)
 
+
 lods = [
     {"scale": 1.0, "label": "100%"},
     {"scale": 0.5, "label": "50%"},
     {"scale": 0.25, "label": "25%"},
     {"scale": 0.1, "label": "10%"}
-  ]
+]
+
 
 class MapApp:
     def __init__(self):
@@ -179,8 +204,8 @@ class MapApp:
         self.keys_pressed = set()
 
         # Данные меток (последние полученные и для анимации)
-        self.markers_data:Dict[Any,PMMView] = {}  # id -> dict с полными данными
-        #self.marker_items = {}  # id -> canvas-объекты для текущего LOD
+        self.markers_data: Dict[Any, PMMView] = {}  # id -> dict с полными данными
+        # self.marker_items = {}  # id -> canvas-объекты для текущего LOD
         # Изображения гексов (PIL) для разных LOD
         self.hex_images = {}  # regID -> {lod: ImageTk.PhotoImage}
         self.marker_icons_pil = {}  # type -> PIL Image (оригинал)
@@ -248,12 +273,12 @@ class MapApp:
         import os
         hex_images_list = os.listdir(os.getenv("HEX_IMAGES_PATH"))
         hex_images_list.sort()
-        delarr = []
-        for hin in hex_images_list:
-            if 'home' in hin.lower():
-                delarr.append(hin)
-        for _ in delarr:
-            hex_images_list.remove(_)
+        # delarr = []
+        # for hin in hex_images_list:
+        #     if 'home' in hin.lower():
+        #         delarr.append(hin)
+        # for _ in delarr:
+        #     hex_images_list.remove(_)
         hex_names = list(map(lambda hin: hin.replace('Hex.tga', '').replace('Map', ''), hex_images_list))
         print(list(enumerate(hex_names)))
 
@@ -299,9 +324,11 @@ class MapApp:
 
     def redraw_all_markers(self):
         for mid, mv in self.markers_data.items():
-            mv.draw_marker(self.lod_scale,self.hex_grid,self.marker_icons_pil,self.offset_x,self.offset_y,self.canvas)
+            mv.draw_marker(self.lod_scale, self.hex_grid, self.marker_icons_pil, self.offset_x, self.offset_y,
+                           self.canvas)
 
         # ... (остальная логика отрисовки иконки/треугольника/точки с использованием wx, wy и self.offset_x)
+
     def update_marker_positions(self, markers_list):
         # print(markers_list)
         received_ids = set()
@@ -311,8 +338,8 @@ class MapApp:
             is_new_m = False
             if not mid in self.markers_data.keys():
                 is_new_m = True
-                self.markers_data[mid] = PMMView(PlaneMM(mid,m['name']),self.canvas)
-            self.markers_data[mid].mm.update_data_from_json(m,False)
+                self.markers_data[mid] = PMMView(PlaneMM(mid, m['name']), self.canvas)
+            self.markers_data[mid].mm.update_data_from_json(m, False)
             if is_new_m:
                 self.markers_data[mid].draw_marker(self.lod_scale, self.hex_grid, self.marker_icons_pil, self.offset_x,
                                                    self.offset_y, self.canvas)
@@ -320,8 +347,8 @@ class MapApp:
         # Удаляем метки, которых нет в новом пакете
         for mid in list(self.markers_data.keys()):
             print(mid)
-            if not mid  in received_ids:
-                print('del',mid)
+            if not mid in received_ids:
+                print('del', mid)
                 self.markers_data[mid].delete()
                 del self.markers_data[mid]
                 # self.markers_data.pop(mid)
@@ -372,7 +399,7 @@ class MapApp:
             del self.rubberband_rect
             # Выделяем маркеры, попадающие в прямоугольник
             for mid, mv in self.markers_data.items():
-                coords = mv.get_coords(self.hex_grid,self.lod_scale)
+                coords = mv.get_coords(self.hex_grid, self.lod_scale)
                 if coords:
                     cx, cy = coords[0], coords[1]  # для изображения coords - это [x,y]
                     if min(x1, x2) <= cx <= max(x1, x2) and min(y1, y2) <= cy <= max(y1, y2):
